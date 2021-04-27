@@ -85,7 +85,7 @@ def main():
     #print (args)
     window_size = 5 #args.get('--window_size')
     k = 0.04 # args.get('--k_corner_response')
-    thresh =10000 # args.get('--corner_threshold')
+    thresh = 10000 # args.get('--corner_threshold')
     
     img_name = "N1.png"
 
