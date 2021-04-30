@@ -54,12 +54,11 @@ def main():
                     #add corner to file
                     CornerList.append([x,y,Corner_r])
                     #add corner to output image 
-                    Color_Img.itemset((y, x, 0), 0)
-                    Color_Img.itemset((y, x, 1), 255)
-                    Color_Img.itemset((y, x, 2), 0)
+                    #Color_Img.itemset((y, x, 0), 0)
+                    #Color_Img.itemset((y, x, 1), 255)
+                    #Color_Img.itemset((y, x, 2), 0)
 
-        if Color_Img is not None:
-            cv.imwrite("CornerImage.png", Color_Img)
+        
         ##sort corner list
         CornerList.sort(key=operator.itemgetter(2))
         ##openFile        
@@ -67,6 +66,23 @@ def main():
         
         for i in range(500):
             CornerFile.write(str(CornerList[i][0]) + ' ' + str(CornerList[i][1]) + ' ' + str(CornerList[i][2]) + '\n')
+
+            for x in range(1,8):
+                for y in range(1,8):
+                    if x == 1 or x == 7 or y == 1 or y == 7:
+                        if CornerList[i][1] + y - 4 >= 0 and CornerList[i][1] + y - 4 <= Color_Img.shape[1] and CornerList[i][0] + x - 4 >= 0 and CornerList[i][0] + x - 4 <= Color_Img.shape[0]:
+                            Color_Img.itemset((int(CornerList[i][1] + y - 4),int( CornerList[i][0] + x - 4), 0), 0)
+                            Color_Img.itemset((int(CornerList[i][1] + y - 4),int( CornerList[i][0] + x - 4), 1), 255)
+                            Color_Img.itemset((int(CornerList[i][1] + y - 4),int( CornerList[i][0] + x - 4), 2), 0)
+            
+            #Color_Img.itemset((y, x, 1), 255)
+            #Color_Img.itemset((y, x, 2), 0)
+
+
+
+        if Color_Img is not None:
+            cv.imwrite("CornerImage.png", Color_Img)
+
         CornerFile.close()
 
 if __name__ == "__main__":
