@@ -3,6 +3,7 @@ import cv2, math
 import numpy as np
 import argparse as ap
 from utils import read_image
+from Stitch import warpTwoImages, stitching2, multiStitching
 
 def read_imageList(path):
     fp = open(path, 'r')
@@ -46,6 +47,9 @@ def leftshift(leftlist, args):
     x = leftlist[0]
     for y in leftlist[1:]:
         H = fts_match(x, y, args.win_size, args.max_iters, args.epsilon)
+        tmp = H[0][2]
+        H[0][2] = H[1][2]
+        H[1][2] = tmp
         print("Homography: ", H)
         hi = np.linalg.inv(H)
         print("Inverse Homography: ", hi)
@@ -72,6 +76,9 @@ def leftshift(leftlist, args):
 def rightshift(rightlist, leftImage, args):
     for each in rightlist:
         H = fts_match(leftImage, each, args.win_size, args.max_iters, args.epsilon)
+        tmp = H[0][2]
+        H[0][2] = H[1][2]
+        H[1][2] = tmp
         print("Homography: ", H)
         txyz = np.dot(H, np.array([each.shape[1], each.shape[0], 1]))
         txyz = txyz / txyz[-1]
@@ -84,112 +91,6 @@ def rightshift(rightlist, leftImage, args):
     
     return leftImage
 
-def warpTwoImages(src_img, dst_img, showstep=False):
-    
-    # generate Homography matrix
-    H = fts_match(src_img, dst_img, args.win_size, args.max_iters, args.epsilon)
-
-    # get height and width of two images
-    height_src, width_src = src_img.shape[:2]
-    height_dst, width_dst = dst_img.shape[:2]
-
-    # extract conners of two images: top-left, bottom-left, bottom-right, top-right
-    pts1 = np.float32(
-        [[0, 0], [0, height_src], [width_src, height_src], [width_src, 0]]
-    ).reshape(-1, 1, 2)
-    pts2 = np.float32(
-        [[0, 0], [0, height_dst], [width_dst, height_dst], [width_dst, 0]]
-    ).reshape(-1, 1, 2)
-    # aply homography to conners of src_img
-    pts1_ = cv2.perspectiveTransform(pts1, H)
-    pts = np.concatenate((pts1_, pts2), axis=0)
-
-    # find max min of x,y coordinate
-    [xmin, ymin] = np.int64(pts.min(axis=0).ravel() - 0.5)
-    [_, ymax] = np.int64(pts.max(axis=0).ravel() + 0.5)
-    t = [-xmin, -ymin]
-
-    # top left point of image which apply homography matrix, which has x coordinate < 0, has side=left
-    # otherwise side=right
-    # source image is merged to the left side or right side of destination image
-    if pts[0][0][0] < 0:
-        side = "left"
-        width_pano = width_dst + t[0]
-    else:
-        width_pano = int(pts1_[3][0][0])
-        side = "right"
-    height_pano = ymax - ymin
-
-    # Translation
-    # https://stackoverflow.com/a/20355545
-    Ht = np.array([[1, 0, t[0]], [0, 1, t[1]], [0, 0, 1]])
-    src_img_warped = cv2.warpPerspective(
-        src_img, Ht.dot(H), (width_pano, height_pano)
-    )
-    # generating size of dst_img_rz which has the same size as src_img_warped
-    dst_img_rz = np.zeros((height_pano, width_pano, 3))
-    if side == "left":
-        dst_img_rz[t[1] : height_src + t[1], t[0] : width_dst + t[0]] = dst_img
-    else:
-        dst_img_rz[t[1] : height_src + t[1], :width_dst] = dst_img
-
-    # blending panorama
-    pano, nonblend, leftside, rightside = panoramaBlending(
-        dst_img_rz, src_img_warped, width_dst, side, showstep=showstep
-    )
-
-    # croping black region
-    pano = crop(pano, height_dst, pts)
-    return pano, nonblend, leftside, rightside    
-    # try:
-       
-    # except BaseException:
-    #     raise Exception("Please try again with another image set!")
-
-def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False):
-    """Given two aligned images @dst_img and @src_img_warped, and the @width_dst is width of dst_img
-    before resize, that indicates where there is the discontinuity between the images,
-    this function produce a smoothed transient in the overlapping.
-    @smoothing_window is a parameter that determines the width of the transient
-    left_biased is a flag that determines whether it is masked the left image,
-    or the right one"""
-
-    h, w, _ = dst_img_rz.shape
-    smoothing_window = int(width_dst / 8)
-    barrier = width_dst - int(smoothing_window / 2)
-    mask1 = blendingMask(
-        h, w, barrier, smoothing_window=smoothing_window, left_biased=True
-    )
-    mask2 = blendingMask(
-        h, w, barrier, smoothing_window=smoothing_window, left_biased=False
-    )
-
-    if showstep:
-        nonblend = src_img_warped + dst_img_rz
-    else:
-        nonblend = None
-        leftside = None
-        rightside = None
-
-    if side == "left":
-        dst_img_rz = cv2.flip(dst_img_rz, 1)
-        src_img_warped = cv2.flip(src_img_warped, 1)
-        dst_img_rz = dst_img_rz * mask1
-        src_img_warped = src_img_warped * mask2
-        pano = src_img_warped + dst_img_rz
-        pano = cv2.flip(pano, 1)
-        if showstep:
-            leftside = cv2.flip(src_img_warped, 1)
-            rightside = cv2.flip(dst_img_rz, 1)
-    else:
-        dst_img_rz = dst_img_rz * mask1
-        src_img_warped = src_img_warped * mask2
-        pano = src_img_warped + dst_img_rz
-        if showstep:
-            leftside = dst_img_rz
-            rightside = src_img_warped
-
-    return pano, nonblend, leftside, rightside
     
 def main(args):
     filenames, images, count = read_imageList(args.path)
@@ -205,9 +106,17 @@ def main(args):
         else:
             rightlist.append(images[i])
 
-    #leftImage = leftshift(leftlist, args)
-    #warpImage = rightshift(rightlist, leftImage, args)
-    warpImage, _, _, _ = warpTwoImages(images[1], images[2])
+    # test stitching 1 
+    # leftImage = leftshift(leftlist, args)
+    # warpImage = rightshift(rightlist, leftImage, args)
+
+    # test stitching 2
+    warpImage, _, _, _ = warpTwoImages(images[0], images[1], args)
+    # warpImage = multiStitching(images, args)
+
+    # test stitching 3
+    # warpImage = stitching2(images, args)
+
     print("Finished")
     cv2.imwrite("pano.jpg", warpImage)
     
@@ -219,7 +128,7 @@ if __name__ == "__main__":
                         help="Path to file list") 
     parser.add_argument("-w", 
                         "--win_size", 
-                        default=15,
+                        default=10,
                         type=int,
                         help="Window size for your feature detector algorithm") 
     

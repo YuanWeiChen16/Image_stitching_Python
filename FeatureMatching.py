@@ -53,68 +53,69 @@ def harris(img, sigma=1, threshold=0.01):
     features.append(ang[np.where(R > 0)])
     corners = zip(*features)
     return list(corners)
-# def ransac(pts1, pts2, img_left, img_right, max_iter=1000, epsilon=1):
-#     matches = []
-#     # Each num of samples
-#     N = 4
 
-#     for i in range(max_iter):
-#         idx = np.random.randint(0, len(pts1) - 1, N)
-#         src = pts1[idx]
-#         dst = pts2[idx]
-
-#         # Calculate the homography matrix H
-#         H = cv2.getPerspectiveTransform(src, dst)
-#         Hp = cv2.perspectiveTransform(pts1[None], H)[0]
-
-#         # find the inliers
-#         inliers = []
-#         for i in range(len(pts1)):
-#             ssd = np.sum(np.square(pts2[i] - Hp[i]))
-#             if ssd < epsilon:
-#                 inliers.append([pts1[i], pts2[i]])
-
-#         if len(inliers) > len(matches):
-#             matches = inliers
-    
-#     return matches, H
-
-def ransac(pts1, pts2, N = 1000, t = 0.9, threshold = 4.0):
-    total = len(pts1)
-    bestH = np.zeros((3, 3))
-    maxInliers = 0
+def ransac(pts1, pts2, max_iter=1000, epsilon=1):
     matches = []
+    # Each num of samples
+    N = 4
+    bestH = np.zeros((3, 3))
+    for i in range(max_iter):
+        idx = np.random.randint(0, len(pts1) - 1, N)
+        src = pts1[idx]
+        dst = pts2[idx]
 
-    for i in range(N):
-        randFour = [np.random.randint(0, total) for i in range(4)]
-        p1 = pts1[randFour]
-        p2 = pts2[randFour]
-        H = dlt(p1, p2)
+        # Calculate the homography matrix H
+        H = cv2.getPerspectiveTransform(src, dst)
+        Hp = cv2.perspectiveTransform(pts1[None], H)[0]
 
-        inlier = 0
-        match = []
-        for index in range(total):
-            src = pts1[index]
-            dst = np.array([pts2[index][0], pts2[index][1]])
+        # find the inliers
+        inliers = []
+        for i in range(len(pts1)):
+            ssd = np.sum(np.square(pts2[i] - Hp[i]))
+            if ssd < epsilon:
+                inliers.append([pts1[i], pts2[i]])
 
-            pred = np.dot(H, np.array([src[0], src[1], 1]))
-            predx = pred[0] / pred[2]
-            predy = pred[1] / pred[2]
-            pred = np.array([predx, predy])
-            pred = np.float32([point for point in pred])
+        if len(inliers) > len(matches):
+            matches = inliers
+            bestH = H
+    return matches, bestH
 
-            if np.linalg.norm(dst - pred) < threshold:
-                inlier += 1
-                match.append([pts1[index], pts2[index]])
+# def ransac(pts1, pts2, N = 10, t = 0.9, threshold = 4.0):
+#     total = len(pts1)
+#     bestH = np.zeros((3, 3))
+#     maxInliers = 0
+#     matches = []
+
+#     for i in range(N):
+#         randFour = [np.random.randint(0, total) for i in range(4)]
+#         p1 = pts1[randFour]
+#         p2 = pts2[randFour]
+#         H = dlt(p1, p2)
+
+#         inlier = 0
+#         match = []
+#         for index in range(total):
+#             src = pts1[index]
+#             dst = np.array([pts2[index][0], pts2[index][1]])
+
+#             pred = np.dot(H, np.array([src[0], src[1], 1]))
+#             predx = pred[0] / pred[2]
+#             predy = pred[1] / pred[2]
+#             pred = np.array([predx, predy])
+#             pred = np.float32([point for point in pred])
+
+#             if np.linalg.norm(dst - pred) < threshold:
+#                 inlier += 1
+#                 match.append([pts1[index], pts2[index]])
 
         
-        if maxInliers < inlier:
-            maxInliers = inlier
-            bestH = H
-            matches = match
-            if inlier > t * total:
-                break
-    return match, bestH
+#         if maxInliers < inlier:
+#             maxInliers = inlier
+#             bestH = H
+#             matches = match
+#             if inlier > t * total:
+#                 break
+#     return match, bestH
 
 def mops(img, truth, win_size, h, w, r):
     height, width = img.shape
@@ -244,7 +245,7 @@ def FeatureMatching(img_left_clr, img_right_clr, win_size, max_iters, epsilon):
     draw_corners(ft_left, img_left_clr, 'corners_left')
     ft_right = harris(img_right, sigma=3, threshold=0.01)
     #ft_right, _, _ = HarrisCorner(img_right)
-    # draw_corners(ft_right, img_right_clr, 'corners_right')
+    draw_corners(ft_right, img_right_clr, 'corners_right')
     print("Number of features (left): ", len(ft_left))
     print("Number of features (right): ", len(ft_right))
     print("Finding the best matches")
@@ -259,7 +260,7 @@ def FeatureMatching(img_left_clr, img_right_clr, win_size, max_iters, epsilon):
     matches, H = ransac(pts_left, pts_right)
     print("Number of pruned matches = ", len(matches))
     # print("Homography :", H)
-    # draw_matches(matches, img_left_clr, img_right_clr)
+    draw_matches(matches, img_left_clr, img_right_clr)
     return H
 
 def main(args):
