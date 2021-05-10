@@ -1,3 +1,0 @@
-./Image/1Hill.JPG
-./Image/2Hill.JPG
-./Image/3Hill.JPG

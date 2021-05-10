@@ -1,0 +1,2 @@
+../data/room/14.jpg
+../roomResult/pano3.jpg

@@ -1,3 +1,0 @@
-./Image/prtn13.jpg
-./Image/prtn12.jpg
-./Image/prtn11.jpg

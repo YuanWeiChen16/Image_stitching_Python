@@ -3,11 +3,7 @@ import numpy as np
 import sys
 import operator
 
-def draw_corners(corners, img, name):
-    for h, w, r in corners:
-        cv.circle(img, (int(w), int(h)), 2, (0, 0, 255))
 
-    cv.imwrite(name + '.png', img)
 
 def HarrisCorner(Img, Mask_Size = 5, Corner_Threshold = 100000):
     ##convert to gray scale
