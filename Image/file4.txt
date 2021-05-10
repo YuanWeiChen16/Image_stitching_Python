@@ -1,0 +1,2 @@
+./Image/room/14.jpg
+./temp/pano3.jpg

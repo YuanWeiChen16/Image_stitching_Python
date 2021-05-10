@@ -3,7 +3,24 @@ import cv2, math
 import numpy as np
 import argparse as ap
 from utils import read_image
-from Stitch import warpTwoImages, stitching2, multiStitching
+
+def changeXY(H):
+    tmp = H[0][2]
+    H[0][2] = H[1][2]
+    H[1][2] = tmp
+
+    tmp = H[0][0]
+    H[0][0] = H[1][1]
+    H[1][1] = tmp
+    
+    tmp = H[0][1]
+    H[0][1] = H[1][0]
+    H[1][0] = tmp
+
+    tmp = H[2][0]
+    H[2][0] = H[2][1]
+    H[2][1] = tmp
+    return H
 
 def read_imageList(path):
     fp = open(path, 'r')
@@ -17,79 +34,179 @@ def read_imageList(path):
     count = len(images)
     return filenames, images, count
 
-def stitching(leftImage, warpImage):
-    y1, x1 = leftImage.shape[:2]
-    y2, x2 = warpImage.shape[:2]
-    print(leftImage[-1, -1])
+def crop(panorama, h_dst, conners):
+   
+    # find max min of x,y coordinate
+    [xmin, ymin] = np.int32(conners.min(axis=0).ravel() - 0.5)
+    t = [-xmin, -ymin]
+    conners = conners.astype(int)
 
-    t = time.time()
-    black_l = np.where(leftImage == np.array([0, 0, 0]))
-    black_w = np.where(warpImage == np.array([0, 0, 0]))
+    # conners[0][0][0] is the X coordinate of top-left point of warped image
+    # If it has value < 0, warp image is merged to the left side of destination image
+    # otherwise is merged to the right side of destination image
+    if conners[0][0][0] < 0:
+        n = abs(-conners[1][0][0] + conners[0][0][0])
+        panorama = panorama[t[1] : h_dst + t[1], n:, :]
+    else:
+        if conners[2][0][0] < conners[3][0][0]:
+            panorama = panorama[t[1] : h_dst + t[1], 0 : conners[2][0][0], :]
+        else:
+            panorama = panorama[t[1] : h_dst + t[1], 0 : conners[3][0][0], :]
+    return panorama
+
+def warpTwoImages(src_img, dst_img, args, showstep=False):
     
-    for i in range(0, x1):
-        for j in range(0, y1):
-            try:
-                if (np.array_equal(leftImage[j, i], np.array([0, 0, 0])) and np.array_equal(warpImage[j, i], np.array([0, 0, 0]))):
-                    warpImage[j, i] = [0, 0, 0]
-                else:
-                    if (np.array_equal(warpImage[j, i], [0, 0, 0])):
-                        warpImage[j. i] = leftImage[j, i]
-                    else:
-                        if not np.array_equal(leftImage[j, i], [0, 0, 0]):
-                            bw, gw, rw = warpImage[j, i]
-                            bl, gl, rl = leftImage[j, i]
-                            warpImage[j, i] = [bl, gl, rl]
-            except:
-                pass
-    return warpImage
+    # generate Homography matrix
+    H = fts_match(src_img, dst_img, args.win_size, args.max_iters, args.epsilon)    
+    H = changeXY(H)
+    print("Homography: ", H)
+    # get height and width of two images
+    height_src, width_src = src_img.shape[:2]
+    height_dst, width_dst = dst_img.shape[:2]
 
-def leftshift(leftlist, args):
-    x = leftlist[0]
-    for y in leftlist[1:]:
-        H = fts_match(x, y, args.win_size, args.max_iters, args.epsilon)
-        tmp = H[0][2]
-        H[0][2] = H[1][2]
-        H[1][2] = tmp
-        print("Homography: ", H)
-        hi = np.linalg.inv(H)
-        print("Inverse Homography: ", hi)
-        ds = np.dot(hi, np.array([x.shape[1], x.shape[0], 1]))
-        ds = ds / ds[-1]
-        print("final ds => ", ds)
-        f1 = np.dot(hi, np.array([0, 0, 1]))
-        f1 = f1 / f1[-1]
-        hi[0][-1] += abs(f1[0])
-        hi[1][-1] += abs(f1[1])
-        ds = np.dot(hi, np.array([x.shape[1], x.shape[0], 1]))
-        print(ds)
-        offsety = abs(int(f1[1]))
-        offsetx = abs(int(f1[0]))
-
-        dsize = (int(ds[0]) + offsetx, int(ds[1]) + offsety)
-        print("image dsize => ", dsize)
-        tmp = cv2.warpPerspective(x, hi, dsize)
-        tmp[offsety:y.shape[0] + offsety, offsetx:y.shape[1] + offsetx] = y
-        x = tmp
+    # extract conners of two images: top-left, bottom-left, bottom-right, top-right
+    pts1 = np.float32(
+        [[0, 0], [0, height_src], [width_src, height_src], [width_src, 0]]
+    ).reshape(-1, 1, 2)
+    pts2 = np.float32(
+        [[0, 0], [0, height_dst], [width_dst, height_dst], [width_dst, 0]]
+    ).reshape(-1, 1, 2)
     
-    return tmp
+    # apply homography to conners of src_img
+    pts1_ = cv2.perspectiveTransform(pts1, H)
+    pts = np.concatenate((pts1_, pts2), axis=0)
 
-def rightshift(rightlist, leftImage, args):
-    for each in rightlist:
-        H = fts_match(leftImage, each, args.win_size, args.max_iters, args.epsilon)
-        tmp = H[0][2]
-        H[0][2] = H[1][2]
-        H[1][2] = tmp
-        print("Homography: ", H)
-        txyz = np.dot(H, np.array([each.shape[1], each.shape[0], 1]))
-        txyz = txyz / txyz[-1]
-        dsize = (int(txyz[0]) + leftImage.shape[1], int(txyz[1] + leftImage.shape[0]))
-        tmp = cv2.warpPerspective(each, H, dsize)
-        tmp = stitching(leftImage, tmp)
-        print("tmp shape: ", tmp.shape)
-        print("leftImage shape: ", leftImage.shape)
-        leftImage = tmp
-    
-    return leftImage
+    # find max min of x,y coordinate
+    [xmin, ymin] = np.int64(pts.min(axis=0).ravel() - 0.5)
+    [_, ymax] = np.int64(pts.max(axis=0).ravel() + 0.5)
+    t = [-xmin, -ymin]
+
+    # top left point of image which apply homography matrix, which has x coordinate < 0, has side=left
+    # otherwise side=right
+    # source image is merged to the left side or right side of destination image
+    if pts[0][0][0] < 0:
+        side = "left"
+        width_pano = width_dst + t[0]
+    else:
+        width_pano = int(pts1_[3][0][0])
+        side = "right"
+    height_pano = ymax - ymin
+
+    # Translation
+    Ht = np.array([[1, 0, t[0]], [0, 1, t[1]], [0, 0, 1]])
+    src_img_warped = cv2.warpPerspective(
+        src_img, Ht.dot(H), (width_pano, height_pano)
+    )
+
+    # generating size of dst_img_rz which has the same size as src_img_warped
+    dst_img_rz = np.zeros((height_pano, width_pano, 3))
+    if side == "left":
+        dst_img_rz[t[1] : height_src + t[1], t[0] : width_dst + t[0]] = dst_img
+    else:
+        dst_img_rz[t[1] : height_src + t[1], :width_dst] = dst_img
+
+    # blending panorama
+    pano, nonblend, leftside, rightside = panoramaBlending(
+        dst_img_rz, src_img_warped, width_dst, side, showstep=showstep
+    )
+
+    # croping black region
+    pano = crop(pano, height_dst, pts)
+    return pano, nonblend, leftside, rightside    
+
+def multiStitching(list_images, args):
+
+    n = int(len(list_images) / 2 + 0.5)
+    left = list_images[:n]
+    right = list_images[n - 1 :]
+    # right.reverse()
+    while len(left) > 1:
+        dst_img = left.pop()
+        src_img = left.pop()
+        left_pano, _, _, _ = warpTwoImages(src_img, dst_img, args)
+        left_pano = left_pano.astype("uint8")
+        cv2.imwrite("leftpano.jpg", left_pano)
+        left.append(left_pano)
+
+    while len(right) > 1:
+        dst_img = right.pop()
+        src_img = right.pop()
+        right_pano, _, _, _ = warpTwoImages(src_img, dst_img, args)
+        right_pano = right_pano.astype("uint8")
+        cv2.imwrite("rightpano.jpg", right_pano)
+        right.append(right_pano)
+
+    fullpano, _, _, _ = warpTwoImages(left_pano, right_pano, args)
+
+    return fullpano
+
+def blendingMask(height, width, barrier, smoothing_window, left_biased=True):
+    assert barrier < width
+    mask = np.zeros((height, width))
+
+    offset = int(smoothing_window / 2)
+    try:
+        if left_biased:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(1, 0, 2 * offset + 1).T, (height, 1)
+            )
+            mask[:, : barrier - offset] = 1
+        else:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(0, 1, 2 * offset + 1).T, (height, 1)
+            )
+            mask[:, barrier + offset :] = 1
+    except BaseException:
+        if left_biased:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(1, 0, 2 * offset).T, (height, 1)
+            )
+            mask[:, : barrier - offset] = 1
+        else:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(0, 1, 2 * offset).T, (height, 1)
+            )
+            mask[:, barrier + offset :] = 1
+
+    return cv2.merge([mask, mask, mask])
+def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False):
+
+    h, w, _ = dst_img_rz.shape
+    smoothing_window = int(width_dst / 8)
+    barrier = width_dst - int(smoothing_window / 2)
+    mask1 = blendingMask(
+        h, w, barrier, smoothing_window=smoothing_window, left_biased=True
+    )
+    mask2 = blendingMask(
+        h, w, barrier, smoothing_window=smoothing_window, left_biased=False
+    )
+
+    if showstep:
+        nonblend = src_img_warped + dst_img_rz
+    else:
+        nonblend = None
+        leftside = None
+        rightside = None
+
+    if side == "left":
+        dst_img_rz = cv2.flip(dst_img_rz, 1)
+        src_img_warped = cv2.flip(src_img_warped, 1)
+        dst_img_rz = dst_img_rz * mask1
+        src_img_warped = src_img_warped * mask2
+        pano = src_img_warped + dst_img_rz
+        pano = cv2.flip(pano, 1)
+        if showstep:
+            leftside = cv2.flip(src_img_warped, 1)
+            rightside = cv2.flip(dst_img_rz, 1)
+    else:
+        dst_img_rz = dst_img_rz * mask1
+        src_img_warped = src_img_warped * mask2
+        pano = src_img_warped + dst_img_rz
+        if showstep:
+            leftside = dst_img_rz
+            rightside = src_img_warped
+
+    return pano, nonblend, leftside, rightside
 
     
 def main(args):
@@ -97,25 +214,10 @@ def main(args):
     print("Number of images : ", count)
     centerIdx = count / 2
     print("Center index image : ", centerIdx)
-    center_im = images[int(centerIdx)]
-    leftlist = []
-    rightlist = []
-    for i in range(count):
-        if (i <= centerIdx):
-            leftlist.append(images[i])
-        else:
-            rightlist.append(images[i])
 
-    # test stitching 1 
-    # leftImage = leftshift(leftlist, args)
-    # warpImage = rightshift(rightlist, leftImage, args)
-
-    # test stitching 2
+    # test stitching
     warpImage, _, _, _ = warpTwoImages(images[0], images[1], args)
     # warpImage = multiStitching(images, args)
-
-    # test stitching 3
-    # warpImage = stitching2(images, args)
 
     print("Finished")
     cv2.imwrite("pano.jpg", warpImage)

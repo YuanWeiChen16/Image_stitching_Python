@@ -1,2 +1,3 @@
-./Image/NR.png
-./Image/NL.png
+./Image/prtn13.jpg
+./Image/prtn12.jpg
+./Image/prtn11.jpg
